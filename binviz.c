@@ -3,57 +3,24 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
-#include <math.h>
+#include <tgmath.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_STATIC
 #include "stb_image_write.h"
 
-#define MAP_SIZE 256
-#define OUTPUT_FNAME ".binviz.png"
-#define OUTPUT_FPATH_SIZE 256
+#define MAP_SIZE            256
+#define OUTPUT_FNAME_EXT    ".binviz.png"
+#define OUTPUT_FPATH_SIZE   256
+#define CHUNK_SIZE          1024 * 8
 
 static size_t map[MAP_SIZE][MAP_SIZE];
 static int32_t pixels[MAP_SIZE][MAP_SIZE];
 
-static char *read_file(FILE * fp, size_t *nbytes)
-{
-    static const size_t page_size = 4096;
-    char *content = NULL;
-    size_t len = 0;
-
-    for (size_t rcount = 1; rcount; len += rcount) {
-        void *const tmp = realloc(content, len + page_size);
-
-        if (!tmp) {
-            free(content);
-            content = NULL;
-/* ENOMEM is not a C standard error code, yet quite common. */
-#ifdef ENOMEM
-            errno = ENOMEM;
-#endif
-            return NULL;
-        }
-        content = tmp;
-        rcount = fread(content + len, 1, page_size - 1, fp);
-
-        if (ferror(fp)) {
-            free(content);
-            content = NULL;
-#ifdef ENOMEM
-            errno = ENOMEM;
-#endif
-            return NULL;
-        }
-    }
-    content[len] = '\0';
-    *nbytes = len;
-    return content;
-}
-
-static FILE *xfopen(const char *path)
+static FILE *xfopen(const char path[static 1])
 {
     errno = 0;
-    FILE *const fp = fopen(path, "r");
+    FILE *const fp = fopen(path, "rb");
 
     if (!fp) {
         fprintf(stderr, "Error: could not open file %s: %s.\n", path,
@@ -63,60 +30,75 @@ static FILE *xfopen(const char *path)
     return fp;
 }
 
-static char *xread_file(const char *fpath, FILE * stream, size_t *nbytes)
+static char *read_next_chunk(FILE *stream, char *chunk, size_t *size)
 {
-    size_t size = 0;
-    char *const content = read_file(stream, &size);
+    if (size) {
+        *size = 0;
+    }
+    
+    const size_t rcount = fread(chunk, 1, CHUNK_SIZE, stream);
 
-    if (!content) {
-        fprintf(stderr, "Error: failed to read file %s: %s.\n", fpath,
-            errno ? strerror(errno) : "");
-        fclose(stream);
-        exit(EXIT_FAILURE);
+    if (rcount < CHUNK_SIZE) {
+        if (!feof(stream)) {
+            /* A read error occured. */
+            return NULL;
+        }
+
+        if (rcount == 0) {
+            return NULL;
+        }
+    }
+    
+    chunk[rcount] = '\0';
+
+    if (size) {
+        *size = rcount;
     }
 
-    if (!size) {
-        fprintf(stderr, "Error: the file %s is empty.\n", fpath);
-        fclose(stream);
-        exit(EXIT_FAILURE);
-    }
-    *nbytes = size;
-    return content;
+    return chunk;
 }
 
-static void process_file(size_t nbytes, const char content[static nbytes])
+static _Bool process_file(FILE stream[static 1])
 {
-    for (size_t i = 0; i < nbytes - 1; ++i) {
-        uint8_t x = content[i];
-        uint8_t y = content[i + 1];
+    char content[CHUNK_SIZE];
+    char *p = NULL;
+    size_t nbytes = 0;
 
-        map[y][x] += 1;
-    }
+    while ((p = read_next_chunk(stream, content, &nbytes))) {
+        for (size_t i = 0; i < nbytes - 1; ++i) {
+            uint8_t x = (uint8_t)content[i];
+            uint8_t y = (uint8_t)content[i + 1];
 
-    float max = 0;
+            map[y][x] += 1;
+        }
 
-    for (size_t y = 0; y < MAP_SIZE; ++y) {
-        for (size_t x = 0; x < MAP_SIZE; ++x) {
-            float f = 0.0f;
+        float max = 0;
 
-            if (map[y][x] > 0) {
-                f = logf(map[y][x]);
+        for (size_t y = 0; y < MAP_SIZE; ++y) {
+            for (size_t x = 0; x < MAP_SIZE; ++x) {
+                float f = 0.0f;
+
+                if (map[y][x] > 0) {
+                    f = log(map[y][x]);
+                }
+
+                if (f > max) {
+                    max = f;
+                }
             }
+        }
 
-            if (f > max) {
-                max = f;
+        for (size_t y = 0; y < MAP_SIZE; ++y) {
+            for (size_t x = 0; x < MAP_SIZE; ++x) {
+                float t = log(map[y][x]) / max;
+                uint32_t b = t * MAP_SIZE;
+
+                pixels[y][x] = 0XFF000000 | b | (b << 8) | (b << 16);
             }
         }
     }
 
-    for (size_t y = 0; y < MAP_SIZE; ++y) {
-        for (size_t x = 0; x < MAP_SIZE; ++x) {
-            float t = logf(map[y][x]) / max;
-            uint32_t b = t * 255;
-
-            pixels[y][x] = 0XFF000000 | b | (b << 8) | (b << 16);
-        }
-    }
+    return feof(stream);
 }
 
 int main(int argc, char **argv)
@@ -136,23 +118,25 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    const char *input = argv[1];
+    const char *const input = argv[1];
     FILE *const fp = xfopen(input);
-    size_t nbytes = 0;
-    char *const content = xread_file(input, fp, &nbytes);
+    
+    if (!process_file(fp)) {
+        fprintf(stderr, "Error: an unexpected error occured while reading.\n");
+        fclose(fp);
+        return EXIT_FAILURE;
+    }
 
-    process_file(nbytes, content);
     fclose(fp);
-    free(content);
 
     char out_fpath[OUTPUT_FPATH_SIZE];
 
-    sprintf(out_fpath, "%s" OUTPUT_FNAME, input);
-    int rv =
+    sprintf(out_fpath, "%s" OUTPUT_FNAME_EXT, input);
+    const int rv =
         stbi_write_png(out_fpath, MAP_SIZE, MAP_SIZE, 4, pixels,
         MAP_SIZE * sizeof pixels[0][0]);
 
-    if (!rv) {
+    if (rv == 0) {
         fprintf(stderr, "Error: could not save image %s.\n", out_fpath);
         return EXIT_FAILURE;
     }
