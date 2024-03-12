@@ -14,7 +14,7 @@ Binary Visualization based on Christopher Domas talk: [youtube link](https://www
 
 ## Sample outputs:
 
-### Executables: (gdb - Intel x86_64, binviz - ARM64, git-bash - Windows PE 32+, pandoc - Intel x86_64)
+#### Executables: (gdb - Intel x86_64, binviz - ARM64, git-bash - Windows PE 32+, pandoc - Intel x86_64)
 
 [![Intel x86_64, gdb][1]][1] 
 [![ARM64, this program's executable][2]][2]
@@ -23,13 +23,13 @@ Binary Visualization based on Christopher Domas talk: [youtube link](https://www
 
 
 
-### Text Files: (war and peace, stb_image_write.h)
+#### Text Files: (war and peace, stb_image_write.h)
 
 [![war_and_peace.txt][5]][5]
 [![stb_image_write.h][6]][6]
 
 
-### Audio File: (streets.wav)
+#### Audio File: (streets.wav)
 
 [![streets.wav][7]][7]
 
