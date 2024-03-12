@@ -33,6 +33,13 @@ Binary Visualization based on Christopher Domas talk: [youtube link](https://www
 
 [![streets.wav][7]][7]
 
+## Building
+
+To build, simply do:
+
+```bash
+make binviz
+```
 
   [1]: https://i.stack.imgur.com/93tUP.png
   [2]: https://i.stack.imgur.com/N53z3.png
