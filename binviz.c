@@ -5,8 +5,10 @@
 #include <errno.h>
 #include <tgmath.h>
 
+#define C2X_PLACEHOLDER 202000L
+
 /* C2X/C23 or later? */
-#if defined(__STDC__VERSION) && __STDC_VERSION__ >= 202000L
+#if defined(__STDC__VERSION) && __STDC_VERSION__ >= C2X_PLACEHOLDER
     #include <stddef.h>     /* nullptr_t */
 #else
     #include <stdbool.h>    /* bool, true. false */
@@ -21,7 +23,7 @@
 #define MAP_SIZE            256
 #define OUTPUT_FNAME_EXT    ".binviz.png"
 #define OUTPUT_FPATH_SIZE   256
-#define CHUNK_SIZE          1024 * 8
+#define CHUNK_SIZE          1024 * 64
 
 static int32_t pixels[MAP_SIZE][MAP_SIZE];
 
@@ -38,45 +40,32 @@ static FILE *xfopen(const char path[static 1])
     return fp;
 }
 
-static bool read_next_chunk(FILE stream[restrict static 1], 
-                            char chunk[restrict static CHUNK_SIZE], 
-                            size_t *size)
+static size_t read_next_chunk(FILE    stream[restrict static 1], 
+                              uint8_t chunk[restrict static CHUNK_SIZE])
 {
-    if (size) {
-        *size = 0;
-    }
-    
     const size_t rcount = fread(chunk, 1, CHUNK_SIZE, stream);
 
     if (rcount < CHUNK_SIZE) {
         if (!feof(stream)) {
             /* A read error occurred. */
-            return false;
+            return 0;
         }
 
         if (rcount == 0) {
-            return false;
+            return 0;
         }
     }
-    
-    chunk[rcount] = '\0';
 
-    if (size) {
-        *size = rcount;
-    }
-
-    return true;;
+    return rcount;;
 }
 
 static void render_pixels(size_t max_val)
 {
-    float max = 0;
-    
-    if (max_val) {
-        max = log(max_val);
-    } else {
+    if (max_val == 0) {
         return;
     }
+    
+    float max = log(max_val);
     
     for (size_t y = 0; y < MAP_SIZE; ++y) {
         for (size_t x = 0; x < MAP_SIZE; ++x) {
@@ -88,18 +77,17 @@ static void render_pixels(size_t max_val)
     }
 }
 
-static bool process_file(FILE stream[static 1], int32_t *max_val)
+static bool process_file(FILE stream[static 1], int32_t max_val[static 1])
 {
-    char content[CHUNK_SIZE];
-    size_t nbytes = 0;
-    bool is_first = true;
+    uint8_t content[CHUNK_SIZE];
     uint8_t last_byte = 0;
+    bool is_first = true;
     *max_val = 0;
 
     while (true) {
-        bool rv = read_next_chunk(stream, content, &nbytes);
+        size_t nbytes = read_next_chunk(stream, content);
 
-        if (!rv) {
+        if (nbytes == 0) {
             break;
         }
         
@@ -110,8 +98,8 @@ static bool process_file(FILE stream[static 1], int32_t *max_val)
         }
 
         for (size_t i = 0; i < nbytes - 1; ++i) {
-            const uint8_t x = (uint8_t)content[i];
-            const uint8_t y = (uint8_t)content[i + 1];
+            const uint8_t x = content[i];
+            const uint8_t y = content[i + 1];
 
             pixels[y][x] += 1;
 
@@ -120,7 +108,7 @@ static bool process_file(FILE stream[static 1], int32_t *max_val)
             }
         }
 
-        last_byte = (uint8_t)content[nbytes - 1];
+        last_byte = content[nbytes - 1];
     }
 
     return feof(stream);
